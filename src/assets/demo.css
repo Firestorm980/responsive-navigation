@@ -1,0 +1,58 @@
+/**
+ * Demo Only styles
+ */
+ body:before {
+	content: "small";
+	display: none;
+
+	@if $use-large-screen == true {
+
+		@media ( min-width: $bp-medium ) {
+			content: "medium";
+		}
+
+		@media ( min-width: $bp-large ) {
+			content: "large";
+		}
+
+	}
+
+}
+
+.container {
+	max-width: 1000px;
+	margin: auto;
+}
+
+.site-header {
+	background: #666;
+	padding: .5rem;
+	position: relative;
+
+	&:before,
+	&:after {
+		content: '';
+		display: table;
+	}
+
+	&:after {
+		clear: both;
+	}
+
+}
+
+.site-title {
+	line-height: 0;
+	margin: 0;
+	padding: 0 1em 0 0;
+	float: left;
+}
+
+.site-link {
+	display: inline-block;
+	line-height: 0;
+
+	img {
+		max-height: 48px;
+	}
+}
