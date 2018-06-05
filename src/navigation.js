@@ -40,35 +40,27 @@ const debounce = function( func, wait, immediate ) {
  * Plugin
  */
 
-const navigation = function( options, callback ) {
+const navigation = function( options = {}, callback = () => {} ) {
 
     var defaults = {
         'target'		:	'#primary-nav',
         'toggle'		:	'#js-menu-toggle',
         'sub_menu_open'	:	'hover'
     };
-    var opt;
 
-    // Map all default settings to user defined options if they exist
-    for ( opt = 0; opt < defaults.length; opt = opt + 1 ) {
+    const settings = Object.assign( {}, defaults, options );
 
-        if( typeof options[opt] === "undefined" ) {
-            options[opt] = defaults[opt];
-        }
-
-    }
-
-    var menu = document.querySelector( options.target );
+    var menu = document.querySelector( settings.target );
 
     // Bail out if there's no menu
     if( !menu ) { return; }
 
     var menu_id = menu.getAttribute( 'id' );
-    var menu_toggle = document.querySelector( options.toggle );
+    var menu_toggle = document.querySelector( settings.toggle );
     var menu_toggle_href = menu_toggle.getAttribute( 'href' );
     var aria_controls = menu_toggle.getAttribute('aria-controls');
     var menu_toggle_target = menu_toggle_href.split('#')[1];
-    var sub_menu_acion = options.sub_menu_open;
+    var sub_menu_acion = settings.sub_menu_open;
     var current_menu_item = menu.querySelector('.current-menu-item');
     var menu_items_with_children = menu.querySelectorAll('.menu-item-has-children');
     var menu_items_with_children_count = menu_items_with_children.length;
