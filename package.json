@@ -19,7 +19,9 @@
   },
   "homepage": "https://github.com/10up/component-scaffold#readme",
   "devDependencies": {
+    "@10up/eslint-config": "^1.0.5",
     "babel-core": "^6.26.3",
+    "babel-eslint": "^8.2.4",
     "babel-loader": "^7.1.4",
     "babel-plugin-transform-runtime": "^6.23.0",
     "babel-preset-env": "^1.7.0",
@@ -27,6 +29,8 @@
     "browser-sync": "^2.24.4",
     "browser-sync-webpack-plugin": "^2.2.2",
     "css-loader": "^0.28.11",
+    "eslint": "^4.19.1",
+    "eslint-loader": "^2.0.0",
     "mini-css-extract-plugin": "^0.4.0",
     "optimize-css-assets-webpack-plugin": "^4.0.2",
     "postcss-loader": "^2.1.5",

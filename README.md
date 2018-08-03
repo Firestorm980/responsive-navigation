@@ -1,3 +1,3 @@
-# 10up Component Name
+# 10up Component Navigation #
 
-This is a scaffold for building new components for the 10up Component Library.
+10up's Responsive Navigation component.
