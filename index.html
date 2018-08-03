@@ -5,6 +5,15 @@
 		<meta charset="utf-8">
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<link href="navigation.css" rel="stylesheet">
+		<style>
+			.screen-reader-text {
+				clip: rect(1px, 1px, 1px, 1px);
+				position: absolute !important;
+				height: 1px;
+				width: 1px;
+				overflow: hidden;
+			}
+		</style>
 	</head>
 	<body>
 		<div class="">
@@ -14,7 +23,7 @@
 				<!--
 					API: data-submenu="click" on this anchor to use click instead of hover on submenus
 				-->
-				<a href="#menu-main-nav" id="js-menu-toggle" class="site-menu-toggle" data-submenu="click">
+				<a href="#primary-nav" id="js-menu-toggle" class="site-menu-toggle" data-submenu="click">
 					<span class="screen-reader-text">Primary Menu</span>
 					<span aria-hidden="true">☰</span>
 				</a>
@@ -66,7 +75,20 @@
 		</div>
 		<script src="navigation.js"></script>
 		<script type="text/javascript">
-			let componentInstance = TenUp.navigation();
+			const $menu = document.querySelector( '#primary-nav' );
+			const $submenus = document.querySelectorAll( '.sub-menu' );
+
+			$menu.addEventListener( 'tenup-navigation:init', () => { console.log( 'init' ) });
+			$menu.addEventListener( 'tenup-navigation:menu-open', () => { console.log( 'open' ) });
+			$menu.addEventListener( 'tenup-navigation:menu-close', () => { console.log( 'close' ) });
+
+			$submenus.forEach( $submenu => { $submenu.addEventListener( 'tenup-navigation:submenu-open', () => { console.log( 'submenu open' ) } ) });
+			$submenus.forEach( $submenu => { $submenu.addEventListener( 'tenup-navigation:submenu-close', () => { console.log( 'submenu close' ) } ) });
+
+			let componentInstance = TenUp.navigation({
+				'sub_menu_open': 'click'
+			}, () => { console.log( 'callback' ); });
+
 		</script>
 	</body>
 </html>

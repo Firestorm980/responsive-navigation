@@ -1,435 +1,486 @@
-'use strict'
+'use strict';
 
 /**
- * Helpers
+ * Variables
  */
 
-// Get screen size from getComputedStyle (so we don't have to define each breakpoint twice) -- Values are set in CSS --
-const get_screen_size = function( sizeString ) {
+// This should match the query set up in our CSS.
+const mq = window.matchMedia( '(min-width: 48em)' );
 
-    var size = window.getComputedStyle( document.body,':before' ).getPropertyValue( 'content' );
+// We're going to be updating these later.
+let settings = {};
+let $menu = null;
+let $menuToggle = null;
+let $submenus = null;
+let $menuItems = null;
 
-    if( size && size.indexOf( sizeString ) !==-1 ) {
-        return true;
-    }
+/**
+ * Setup
+ */
+
+/**
+ * Sets up all polyfills required by the plugin.
+ *
+ * @returns {null} Nothing.
+ */
+const setupPolyfills = () => {
+	// forEach on node lists
+	// @source: https://developer.mozilla.org/en-US/docs/Web/API/NodeList/forEach
+	if ( window.NodeList && !NodeList.prototype.forEach ) {
+		NodeList.prototype.forEach = function ( callback, thisArg ) {
+			thisArg = thisArg || window;
+			for ( var i = 0; i < this.length; i++ ) {
+				callback.call( thisArg, this[i], i, this );
+			}
+		};
+	}
+
+	// Custom events
+	// @source: https://developer.mozilla.org/en-US/docs/Web/API/CustomEvent/CustomEvent
+	if ( typeof window.CustomEvent === 'function' ) return false;
+
+	/**
+	 * Custom event function.
+	 *
+	 * @param   {object} event  The event object.
+	 * @param   {object} params Options for the event.
+	 * @returns {object}        The custom event.
+	 */
+	function CustomEvent ( event, params ) {
+		params = params || { bubbles: false, cancelable: false, detail: undefined };
+		var evt = document.createEvent( 'CustomEvent' );
+		evt.initCustomEvent( event, params.bubbles, params.cancelable, params.detail );
+		return evt;
+	}
+
+	CustomEvent.prototype = window.Event.prototype;
+
+	window.CustomEvent = CustomEvent;
+};
+
+/**
+ * Sets up the main menu for the navigation.
+ * Includes adding classes and ARIA.
+ * We use "scoped" classes so we can be more confident that there will be no collisions.
+ *
+ * @returns {null} Nothing.
+ */
+const setupMenu = () => {
+
+	const id = $menu.getAttribute( 'id' );
+	const href = $menuToggle.getAttribute( 'href' );
+	const hrefTarget = href.replace( '#', '' );
+
+	// Check for a valid ID on the menu.
+	if ( ! id || id === '' ) {
+		console.error( '10up Navigation: Target (menu) must have a valid ID attribute.' ); // eslint-disable-line
+		return;
+	}
+
+	// Check that the menu toggle is set to use the menu for fallback.
+	if ( hrefTarget !== id ) {
+		console.warn( '10up Navigation: The menu toggle href and menu ID are not equal.' ); // eslint-disable-line
+	}
+
+	// Add classes for our plugin styles.
+	$menu.classList.add( 'js-tenup-navigation__menu' );
+	$menu.classList.add( 'js-tenup-navigation__menu--main' );
+	$menuToggle.classList.add( 'js-tenup-navigation__menu-toggle' );
+
+	// Add additional classes based on interaction type.
+	if ( settings.sub_menu_open === 'click' ) {
+		$menu.classList.add( 'js-tenup-navigation__menu--click' );
+	} else {
+		$menu.classList.add( 'js-tenup-navigation__menu--hover' );
+	}
+
+	// Update classes on menu items.
+	$menuItems.forEach( $menuItem => {
+		$menuItem.classList.add( 'js-tenup-navigation__menu-item' );
+	} );
+
+	// Update ARIA.
+	$menuToggle.setAttribute( 'aria-controls', hrefTarget );
+
+	// Sets up ARIA tags related to screen size based on our media query.
+	setMQMenuA11y();
+};
+
+/**
+ * Sets up the submenus.
+ * Adds JS classes and initial AIRA attributes.
+ *
+ * @returns {null} Nothing.
+ */
+const setupSubMenus = () => {
+
+	$submenus.forEach( ( $submenu, index ) => {
+		const $anchor    = $submenu.previousElementSibling;
+		const submenuID  = `tenUp-submenu-${index}`;
+
+		$submenu.classList.add( 'js-tenup-navigation__menu' );
+		$submenu.classList.add( 'js-tenup-navigation__menu--submenu' );
+
+		$submenu.setAttribute( 'id', submenuID );
+		$anchor.classList.add( 'js-tenup-navigation__submenu-parent-anchor' );
+
+		// Update ARIA.
+		$submenu.setAttribute( 'aria-label', 'Submenu' );
+		$anchor.setAttribute( 'aria-controls', submenuID );
+		$anchor.setAttribute( 'aria-haspopup', true );
+
+		// Sets up ARIA tags related to screen size based on our media query.
+		setMQSubbmenuA11y();
+	} );
+};
+
+/**
+ * Binds our various listeners for the plugin.
+ * Includes specific element listeners as well as media query.
+ *
+ * @returns {null} Nothing.
+ */
+const setupListeners = () => {
+	// Media query listener.
+	// We're using this instead of resize + debounce because it should be more efficient than that combo.
+	mq.addListener( setMQ );
+
+	// Menu toggle listener.
+	$menuToggle.addEventListener( 'click', listenerMenuToggleClick );
+
+	// Submenu listeners.
+	// Mainly applies to the anchors of submenus.
+	$submenus.forEach( $submenu => {
+		const $anchor  = $submenu.previousElementSibling;
+
+		if ( settings.sub_menu_open === 'hover' ) {
+			$anchor.addEventListener( 'focus', listenerSubmenuAnchorFocus );
+		}
+
+		$anchor.addEventListener( 'click', listenerSubmenuAnchorClick );
+	} );
+
+	// Document specific listeners.
+	// Mainly used to close any open menus.
+	document.addEventListener( 'click', listenerDocumentClick );
+	document.addEventListener( 'keyup', listenerDocumentKeyup );
+};
+
+
+/**
+ * Set
+ */
+
+/**
+ * Sets an media query related functions when the query boundry is reached.
+ *
+ * @returns {null} Nothing.
+ */
+const setMQ = () => {
+	setMQMenuA11y();
+	setMQSubbmenuA11y();
+};
+
+/**
+ * Sets any ARIA that changes as a result of the media query boundry being passed.
+ * Specifically for the toggle and main menu.
+ *
+ * @returns {null} Nothing.
+ */
+const setMQMenuA11y = () => {
+
+	// Large
+	if ( mq.matches ) {
+		$menu.setAttribute( 'aria-hidden', false );
+		$menuToggle.setAttribute( 'aria-expanded', true );
+		$menuToggle.setAttribute( 'aria-hidden', true );
+	// Small
+	} else {
+		$menu.setAttribute( 'aria-hidden', true );
+		$menuToggle.setAttribute( 'aria-expanded', false );
+		$menuToggle.setAttribute( 'aria-hidden', false );
+	}
 
 };
 
-// Debounce
-const debounce = function( func, wait, immediate ) {
-
-    var timeout;
-    return function() {
-        var context = this, args = arguments;
-
-        var later = function() {
-            timeout = null;
-            if (!immediate) func.apply(context, args);
-        };
-
-        var callNow = immediate && !timeout;
-
-        clearTimeout( timeout );
-        timeout = setTimeout( later, wait );
-        if (callNow) func.apply(context, args);
-    };
-
+/**
+ * Sets an media query related functions when the query boundry is reached.
+ * Specifically for submenus.
+ *
+ * @returns {null} Nothing.
+ */
+const setMQSubbmenuA11y = () => {
+	$submenus.forEach( $submenu => {
+		$submenu.setAttribute( 'aria-hidden', true );
+	} );
 };
 
 /**
- * Plugin
+ * Opens the passed submenu.
+ *
+ * @param   {element} $submenu The submenu to open. Required.
+ * @returns {null}             Nothing.
+ */
+const openSubmenu = ( $submenu ) => {
+	// Open the submenu by updating ARIA and class.
+	$submenu.setAttribute( 'aria-hidden', false );
+	$submenu.classList.add( 'js-tenup-navigation__menu--submenu-is-open' );
+
+	// Custom open event
+	$submenu.dispatchEvent( new CustomEvent( 'tenup-navigation:submenu-open' ) );
+};
+
+/**
+ * Closes the passed submenu.
+ *
+ * @param   {element} $submenu The submenu to close. Required.
+ * @returns {null}             Nothing.
+ */
+const closeSubmenu = ( $submenu ) => {
+	const $childSubmenus = $submenu.querySelectorAll( 'li > .js-tenup-navigation__menu--submenu-is-open' );
+
+	// Close the submenu by updating ARIA and class.
+	$submenu.setAttribute( 'aria-hidden', true );
+	$submenu.classList.remove( 'js-tenup-navigation__menu--submenu-is-open' );
+
+	if ( $childSubmenus ) {
+		// Close any children as well.
+		// Update their ARIA and class.
+		closeSubmenus( $childSubmenus );
+	}
+
+	// Custom close event
+	$submenu.dispatchEvent( new CustomEvent( 'tenup-navigation:submenu-close' ) );
+};
+
+/**
+ * Closes all submenus in the node list.
+ *
+ * @param   {nodelist} $submenus The node list of submenus to close. Required.
+ * @returns {null}               Nothing.
+ */
+const closeSubmenus = ( $submenus ) => {
+	$submenus.forEach( $submenu => {
+		closeSubmenu( $submenu );
+	} );
+};
+
+/**
+ * Listeners
  */
 
-const navigation = function( options = {}, callback = () => {} ) {
-
-    var defaults = {
-        'target'		:	'#primary-nav',
-        'toggle'		:	'#js-menu-toggle',
-        'sub_menu_open'	:	'hover'
-    };
-
-    const settings = Object.assign( {}, defaults, options );
-
-    var menu = document.querySelector( settings.target );
-
-    // Bail out if there's no menu
-    if( !menu ) { return; }
-
-    var menu_id = menu.getAttribute( 'id' );
-    var menu_toggle = document.querySelector( settings.toggle );
-    var menu_toggle_href = menu_toggle.getAttribute( 'href' );
-    var aria_controls = menu_toggle.getAttribute('aria-controls');
-    var menu_toggle_target = menu_toggle_href.split('#')[1];
-    var sub_menu_acion = settings.sub_menu_open;
-    var current_menu_item = menu.querySelector('.current-menu-item');
-    var menu_items_with_children = menu.querySelectorAll('.menu-item-has-children');
-    var menu_items_with_children_count = menu_items_with_children.length;
-    var currentTarget;
-    var target;
-    var i;
-
-    // Listener for the menu open/close action
-    function listener_menu( e ) {
-
-        // Stop links from firing
-        e.preventDefault();
-
-        if( document.body.classList.contains('menu-is-open') ) {
-
-            // Close the menu
-            menu.setAttribute('aria-hidden', 'true');
-            menu_toggle.setAttribute('aria-expanded', 'false');
-
-            // Bubble to the document
-            document.body.classList.remove('menu-is-open');
-
-        } else {
-
-            // Open the menu
-            menu.setAttribute('aria-hidden', 'false');
-            menu_toggle.setAttribute('aria-expanded', 'true');
-
-            // Set focus to the first link
-            menu.querySelectorAll('a')[0].focus();
-
-            // Bubble to the document
-            document.body.classList.add('menu-is-open');
-
-        }
-
-    }; // listener_menu()
-
-    // Listener for submenu on click
-    function listener_submenu_click( e ) {
-
-        currentTarget = e.currentTarget;
-        target = e.target;
-
-        if( target.getAttribute('aria-haspopup') ) {
-
-            // Stop links from firing
-            e.preventDefault();
-
-            // Stop events from bubbling up to parent elements
-            e.stopPropagation();
-
-            var parent_menu = target.parentNode;
-            var sub_menu = parent_menu.querySelector('.sub-menu');
-            var all_open_menus = menu.querySelectorAll('.child-has-focus');
-            var all_open_menus_count = all_open_menus.length;
-            var all_open_menu_triggers = menu.querySelectorAll( '.child-has-focus > a.submenu-is-open' );
-            var all_open_menu_triggers_count = all_open_menu_triggers.length;
-            var t;
-
-            if( get_screen_size( 'medium' ) || get_screen_size( 'large' ) ) {
-
-                if( all_open_menu_triggers_count > 0 ) {
-
-                    // Make sure only 1 menu item can be opened at a time
-                    for( t = 0; t < all_open_menu_triggers_count; t = t + 1 ) {
-
-                        // Check if the open menu is top-level, if so, close it
-                        if( parent_menu.parentNode === menu ) {
-                            menu_sub_close( all_open_menu_triggers[t] );
-                        }
-
-                    } // for
-
-                } // if
-
-            } // if
-
-            if( e.target.nodeName === 'A' && target.classList.contains( 'submenu-is-open' ) ) {
-
-                // The menu is already open, so this should be a close action
-                menu_sub_close( target );
-
-            } else {
-
-                // The menu is closed, so this click should open it
-                menu_sub_open( target );
-
-                // Reset the focus
-                sub_menu.querySelectorAll('a')[0].focus();
-
-            }
-        }
-
-    }; // listener_submenu_click()
-
-    // When "hover", this is how focus should act
-    function listener_submenu_focus( e ) {
-
-        var currentTarget = e.currentTarget;
-        var target = e.target;
-        var parent_menu = target.parentNode;
-        var sub_menu = parent_menu.querySelector('.sub-menu');
-        var all_open_menu_triggers = menu.querySelectorAll( '.child-has-focus > a.submenu-is-open' );
-        var all_open_menu_triggers_count = all_open_menu_triggers.length;
-        var t;
-
-        if( get_screen_size( 'medium' ) || get_screen_size( 'large' ) ) {
-
-            if( all_open_menu_triggers_count > 0 ) {
-
-                // Make sure only 1 menu item can be opened at a time
-                for( t = 0; t < all_open_menu_triggers_count; t = t + 1 ) {
-
-                    // Check if the open menu is top-level, if so, close it
-                    if( parent_menu.parentNode === menu ) {
-                        menu_sub_close( all_open_menu_triggers[t] );
-                    }
-
-                }
-            }
-
-        }
-
-        menu_sub_open( target );
-
-    };
-
-    // Listener for the window resize
-    var listener_window = debounce( function( e ) {
-
-        if( get_screen_size( 'small' ) ) {
-
-            menu_create();
-
-        } else {
-
-            menu_destroy();
-
-        }
-
-    }, 100 ); // listener_window()
-
-    // Close the menu if you click somewhere else
-    function listener_close_open_menus( e ) {
-
-        var open_menus = menu.querySelectorAll('.submenu-is-open');
-        var open_menus_count = open_menus.length;
-        var opn;
-
-        // if the event is keyup and it was the ESC key
-        if( e.type === 'keyup' && e.keyCode == 27 ) {
-
-            // We were getting some errors, so let's add in a checkpoint
-            if ( open_menus_count ) {
-
-                // Loop through all the open menus and close them
-                for( opn = 0; opn < open_menus.length; opn = opn + 1 ) {
-
-                    menu_sub_close( open_menus[opn] );
-
-                } // for
-
-                // Return focus to the first open menu
-                if( sub_menu_acion === 'click' ) {
-                    open_menus[0].focus();
-                }
-
-            } // if
-
-        // If the event was a mouseup
-        } else if( e.type === 'mouseup' ) {
-
-            if ( !menu.contains( e.target ) && menu.querySelector('.submenu-is-open') ) {
-
-                // We were getting some error, so let's add in a second checkpoint
-                if ( open_menus_count ) {
-
-                    for( opn = 0; opn < open_menus.length; opn = opn + 1 ) {
-
-                        menu_sub_close( open_menus[opn] );
-
-                    } // for
-
-                }
-
-            } // if
-
-        }
-
-    }; // listener_close_open_menus()
-
-    function menu_sub_close( open_item ) {
-
-        open_item.classList.remove('submenu-is-open');
-        open_item.parentNode.classList.remove('child-has-focus');
-
-        if( open_item.parentNode.querySelector('.sub-menu') ) {
-            open_item.parentNode.querySelector('.sub-menu').setAttribute( 'aria-hidden', 'true');
-        }
-
-    }; // menu_sub_close()
-
-    function menu_sub_open( closed_item ) {
-
-        closed_item.classList.add('submenu-is-open');
-        closed_item.parentNode.classList.add('child-has-focus');
-
-        if( closed_item.parentNode.querySelector('.sub-menu') ) {
-            closed_item.parentNode.querySelector('.sub-menu').setAttribute( 'aria-hidden', 'false');
-        }
-
-    }; // menu_sub_open()
-
-    // Method to create the small screen menu
-    function menu_create() {
-
-        if( !document.body.classList.contains( 'menu-created' ) ) {
-
-            if( !document.body.classList.contains( 'menu-is-open' ) ) {
-
-                menu.setAttribute( 'aria-hidden', 'true' );
-                menu_toggle.setAttribute( 'aria-expanded', 'false' );
-
-            } else {
-
-                menu.setAttribute( 'aria-hidden', 'false' );
-                menu_toggle.setAttribute( 'aria-expanded', 'true' );
-
-            }
-
-            // Loop through all submenus and bind events when needed
-            for( i = 0; i < menu_items_with_children_count; i = i + 1 ) {
-
-                if( sub_menu_acion !== 'click' ) {
-
-                    menu_items_with_children[i].addEventListener( 'click', listener_submenu_click );
-                    menu_items_with_children[i].removeEventListener( 'focusin', listener_submenu_focus );
-                    menu.classList.add('uses-click');
-
-                }
-
-            } // for
-
-            // Bind the event
-            menu_toggle.addEventListener( 'click', listener_menu );
-
-            // Add the body class to prevent this from running again
-            document.body.classList.add( 'menu-created' );
-            document.body.classList.remove( 'menu-destroyed' );
-
-        }
-
-    }; // menu_create()
-
-    // Method to destroy the small screen menu
-    function menu_destroy() {
-
-        var tmp_open
-        var tmp_open_count
-        var t;
-
-        if( !document.body.classList.contains( 'menu-destroyed' ) ) {
-
-            // Remove aria-hidden, because we don't need it.
-            menu.removeAttribute( 'aria-hidden' );
-
-            // Loop through all submenus and bind events when needed
-            for( i = 0; i < menu_items_with_children_count; i = i + 1 ) {
-                if( sub_menu_acion !== 'click' ) {
-                    menu_items_with_children[i].removeEventListener( 'click', listener_submenu_click );
-                    menu_items_with_children[i].addEventListener( 'focusin', listener_submenu_focus );
-                    menu.classList.remove('uses-click');
-                }
-            }
-
-            // If we're not using click, the open menus need to be reset
-            if( sub_menu_acion !== 'click' ) {
-
-                tmp_open = document.querySelectorAll('.child-has-focus');
-                tmp_open_count = tmp_open.length;
-
-                for( t = 0; t < tmp_open_count; t = t + 1 ) {
-                    tmp_open[t].classList.remove( 'child-has-focus' );
-                    tmp_open[t].querySelector('.submenu-is-open').classList.remove('submenu-is-open');
-                    tmp_open[t].querySelector('.sub-menu').setAttribute( 'aria-hidden', 'true');
-                }
-
-            }
-
-            // Unbind the event
-            menu_toggle.removeEventListener( 'click', listener_menu );
-
-            // Add the body class to prevent this from running again
-            document.body.classList.add( 'menu-destroyed' );
-            document.body.classList.remove( 'menu-created' );
-
-        }
-
-    };
-
-    // Check init menu state
-    if( get_screen_size( 'small' ) ) {
-        menu_create();
-    }
-
-    // If aria-controls isn't set, set it
-    if( !aria_controls ) {
-        menu_toggle.setAttribute( 'aria-controls', menu_id );
-    }
-
-    // If the menu ID and toggle href don't match, make them match (this seems to happen often to merit this check)
-    if( menu_toggle_target !== menu_id ) {
-        menu_toggle.setAttribute( 'href', '#' + menu_id );
-    }
-
-    if ( current_menu_item ) {
-        current_menu_item.querySelector( 'a' ).setAttribute( 'aria-current', 'page' );
-    }
-
-
-    /*
-        Events
-    */
-
-    // Debounced resize event to create and destroy the small screen menu options
-    window.addEventListener( 'resize', listener_window );
-
-    // Close the submenus by clicking off of them or hitting ESC
-    document.addEventListener('mouseup', listener_close_open_menus );
-    document.addEventListener('keyup', listener_close_open_menus );
-
-    /*
-        Hiding and showing submenus (click, focus, hover)
-    */
-
-    // Loop through all items with sub menus and bind focus to them for tabbing
-    for( i = 0; i < menu_items_with_children_count; i = i + 1 ) {
-
-        // Let a screen reader know this menu has a submenu by hooking into the first link
-        menu_items_with_children[i].querySelector('a').setAttribute( 'aria-haspopup', 'true' );
-
-        // Hide and label each sub menu
-        menu_items_with_children[i].querySelector('.sub-menu').setAttribute( 'aria-hidden', 'true' );
-        menu_items_with_children[i].querySelector('.sub-menu').setAttribute( 'aria-label', 'Submenu' );
-
-        // If the screen is small or the action is set to click
-        if( get_screen_size( 'small' ) || sub_menu_acion === 'click' ) {
-
-            menu_items_with_children[i].addEventListener( 'click', listener_submenu_click );
-            menu.classList.add('uses-click');
-
-        } else if ( sub_menu_acion !== 'click' ) {
-
-            if( get_screen_size( 'medium' ) || get_screen_size( 'large' ) ) {
-
-                menu_items_with_children[i].addEventListener( 'focusin', listener_submenu_focus );
-
-            } // if
-
-        } // if
-
-    } // for
-
-    // Execute the callback function
-    if( typeof callback === 'function' ) {
-        callback.call();
-    }
-
-} // build_menu()
-
-export default navigation
+/**
+ * Menu toggle handler.
+ * Opens or closes the menu according to current state.
+ *
+ * @param {Object} event The event object.
+ * @returns {null}       Nothing.
+ */
+const listenerMenuToggleClick = ( event ) => {
+	const isExpanded = ( $menuToggle.getAttribute( 'aria-expanded' ) === 'true' );
+
+	// Don't act like a link.
+	event.preventDefault();
+
+	// Don't bubble.
+	event.stopPropagation();
+
+	// Is the menu currently open?
+	if ( isExpanded ) {
+
+		// Update classes
+		$menu.classList.remove( 'js-tenup-navigation__menu--is-open' );
+		$menuToggle.classList.remove( 'js-tenup-navigation__menu-toggle--is-open' );
+
+		// Update ARIA
+		$menu.setAttribute( 'aria-hidden', true );
+		$menuToggle.setAttribute( 'aria-expanded', false );
+
+		// Custom close event
+		$menu.dispatchEvent( new CustomEvent( 'tenup-navigation:menu-close' ) );
+	} else {
+
+		// Update classes
+		$menu.classList.add( 'js-tenup-navigation__menu--is-open' );
+		$menuToggle.classList.add( 'js-tenup-navigation__menu-toggle--is-open' );
+
+		// Update ARIA
+		$menu.setAttribute( 'aria-hidden', false );
+		$menuToggle.setAttribute( 'aria-expanded', true );
+
+		// Focus the first link in the menu
+		$menu.querySelectorAll( 'a' )[0].focus();
+
+		// Custom open event
+		$menu.dispatchEvent( new CustomEvent( 'tenup-navigation:menu-open' ) );
+	}
+};
+
+/**
+ * Document click handler.
+ * Closes all open submenus on a click outside of the menu.
+ *
+ * @returns {null} Nothing.
+ */
+const listenerDocumentClick = () => {
+	const $openSubmenus = $menu.querySelectorAll( '.js-tenup-navigation__menu--submenu-is-open' );
+
+	// Bail if no submenus are found.
+	if ( ! $openSubmenus ) {
+		return;
+	}
+
+	// Close the submenus.
+	closeSubmenus( $openSubmenus );
+};
+
+/**
+ * Document keyup handler.
+ * Closes all open menus on a escape key.
+ * Refocuses after closing submenus.
+ *
+ * @param   {Object} event The event object.
+ * @returns {null}         Nothing.
+ */
+const listenerDocumentKeyup = ( event ) => {
+	const $openSubmenus = $menu.querySelectorAll( '.js-tenup-navigation__menu--submenu-is-open' );
+
+	// Bail early if not using the escape key or if no submenus are found.
+	if ( ! $openSubmenus || event.keyCode !== 27 ) {
+		return;
+	}
+
+	// Close submenus
+	closeSubmenus( $openSubmenus );
+
+	// If we're set to click, set the focus back.
+	if ( settings.sub_menu_open === 'click' ) {
+		$openSubmenus[0].previousElementSibling.focus();
+	}
+};
+
+/**
+ * Submenu anchor click handler.
+ * Opens or closes the submenu accordingly.
+ * Only fires based on settings and if the media query is appropriate.
+ *
+ * @param   {Object} event The event object. Required.
+ * @returns {null}          Nothing.
+ */
+const listenerSubmenuAnchorClick = ( event ) => {
+	const $anchor = event.target;
+	const $submenu = $anchor.nextElementSibling;
+	const isHidden = ( $submenu.getAttribute( 'aria-hidden' ) === 'true' );
+
+	// Bail if set to hover and we're on a large screen.
+	if ( settings.sub_menu_open === 'hover' && mq.matches ) {
+		return;
+	}
+
+	// Don't let the link act like a link.
+	event.preventDefault();
+
+	// Don't bubble.
+	event.stopPropagation();
+
+	// Is the submenu hidden?
+	if ( isHidden ) {
+		// Yes, open it.
+		openSubmenu( $submenu );
+	} else {
+		// No, close it.
+		closeSubmenu( $submenu );
+	}
+};
+
+/**
+ * Submenu anchor focus handler.
+ * Opens or closes the submenu accordingly.
+ * Only fires based on settings and if the media query is appropriate.
+ *
+ * @param   {object} event The event object.
+ * @returns {null}         Nothing.
+ */
+const listenerSubmenuAnchorFocus = ( event ) => {
+	const $anchor = event.target;
+	const $menuItem = $anchor.parentNode;
+	const $submenu = $anchor.nextElementSibling;
+	const $siblingSubmenus = $menuItem.parentNode.querySelectorAll( '.js-tenup-navigation__menu--submenu' );
+
+	// Bail early if no submenu is found or if we're on a small screen.
+	if ( ! $submenu || ! mq.matches ) {
+		return;
+	}
+
+	// Close all sibling menus
+	closeSubmenus( $siblingSubmenus );
+
+	// Open this menu
+	openSubmenu( $submenu );
+};
+
+/**
+ * The main plugin function.
+ * This is called from whatever code wants to use the plugin.
+ * It sets up many of the global variables that we'll reuse later in other functions.
+ * It also kicks off many of the other set up functions and does the callback specified, if any. The plugin also includes some event callbacks as well. This function has the init event.
+ * There are also some included checks in order to help prevent errors in initialization.
+ *
+ * @param {object}   options  The options passed on init. Optional.
+ * @param {function} callback A callback function to call after the plugin has initiated. Optional.
+ * @returns {null}            Nothing.
+ */
+const navigation = ( options = {}, callback = false ) => {
+
+	// Defaults
+	const defaults = {
+		'target'        : '#primary-nav',
+		'toggle'        : '#js-menu-toggle',
+		'sub_menu_open' : 'hover'
+	};
+
+	// Settings
+	settings = Object.assign( {}, defaults, options );
+
+	// Menu container
+	$menu = document.querySelector( settings.target );
+
+	// Bail out if there's no menu.
+	if ( ! $menu ) {
+		console.error( '10up Navigation: Target not found. A valid target (menu) must be used.' ); // eslint-disable-line
+		return;
+	}
+
+	$menuToggle = document.querySelector( settings.toggle );
+
+	// Also bail early if the toggle isn't set.
+	if ( ! $menuToggle ) {
+		console.error( '10up Navigation: No menu toggle found. A valid menu toggle must be used.' ); // eslint-disable-line
+		return;
+	}
+
+	// Set all submenus and menu items.
+	$submenus = $menu.querySelectorAll( 'ul' );
+	$menuItems = $menu.querySelectorAll( 'li' );
+
+	// Update the html element classes for styles.
+	// Otherwise it'll fallback to :target.
+	document.querySelector( 'html' ).classList.remove( 'no-js' );
+	document.querySelector( 'html' ).classList.add( 'js' );
+
+	// Setup tasks
+	setupPolyfills();
+	setupMenu();
+	setupSubMenus();
+	setupListeners();
+
+	// Do any callbacks, if assigned.
+	if ( callback && typeof callback === 'function' ) {
+		callback.call();
+	}
+
+	// Fire our custom event for init.
+	$menu.dispatchEvent( new CustomEvent( 'tenup-navigation:init' ) );
+};
+
+export default navigation;
